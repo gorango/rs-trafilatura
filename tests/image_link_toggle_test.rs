@@ -820,3 +820,72 @@ fn figure_images_not_duplicated() {
     assert_eq!(result.images[0].src, "https://example.com/in-figure.jpg");
     assert_eq!(result.images[0].caption, Some("Figure caption".to_string()));
 }
+
+/// Test that images appear in content_html when include_images is true
+#[test]
+fn images_appear_in_html_output() {
+    let html = r#"
+        <html><body>
+            <article>
+                <p>Article with images.</p>
+                <figure>
+                    <picture>
+                        <source srcset="https://example.com/large.webp" type="image/webp" media="(min-width: 800px)">
+                        <img src="https://example.com/photo.jpg" alt="A photo" title="Photo">
+                    </picture>
+                    <figcaption>This is a caption.</figcaption>
+                </figure>
+                <p>More content here to ensure extraction.</p>
+                <p>Additional paragraph with enough text to satisfy scoring.</p>
+            </article>
+        </body></html>
+    "#;
+
+    let options = Options {
+        include_images: true,
+        ..Options::default()
+    };
+
+    let result = extract_with_options(html, &options).expect("extraction failed");
+
+    let content_html = result.content_html.expect("content_html should exist");
+
+    assert!(content_html.contains("<figure"), "HTML should contain <figure>");
+    assert!(content_html.contains("<picture"), "HTML should contain <picture>");
+    assert!(content_html.contains("<source"), "HTML should contain <source>");
+    assert!(content_html.contains("<img"), "HTML should contain <img>");
+    assert!(content_html.contains("<figcaption"), "HTML should contain <figcaption>");
+    assert!(content_html.contains("src=\"https://example.com/photo.jpg\""), "HTML should contain img src");
+    assert!(content_html.contains("alt=\"A photo\""), "HTML should contain img alt");
+    assert!(content_html.contains("title=\"Photo\""), "HTML should contain img title");
+    assert!(content_html.contains("srcset=\"https://example.com/large.webp\""), "HTML should contain source srcset");
+    assert!(content_html.contains("type=\"image/webp\""), "HTML should contain source type");
+    assert!(content_html.contains("media=\"(min-width: 800px)\""), "HTML should contain source media");
+}
+
+/// Test that images appear in markdown output when include_images is true
+#[test]
+fn images_appear_in_markdown_output() {
+    let html = r#"
+        <html><body>
+            <article>
+                <p>Article with images.</p>
+                <img src="https://example.com/photo.jpg" alt="A photo">
+                <p>More content here to ensure extraction.</p>
+                <p>Additional paragraph with enough text to satisfy scoring.</p>
+            </article>
+        </body></html>
+    "#;
+
+    let options = Options {
+        include_images: true,
+        output_markdown: true,
+        ..Options::default()
+    };
+
+    let result = extract_with_options(html, &options).expect("extraction failed");
+
+    let content_md = result.content_markdown.expect("content_markdown should exist");
+
+    assert!(content_md.contains("![A photo](https://example.com/photo.jpg)"), "Markdown should contain image: {content_md}");
+}

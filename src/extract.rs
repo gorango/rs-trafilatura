@@ -217,11 +217,24 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
         // If it returns Some(html), the result has been validated as an improvement
         if let Some(ref html) = fallback_html {
             let fallback_len = fallback_text.chars().count();
-            warnings.push(format!(
-                "Used fallback extraction: {fallback_len} chars (was {content_len} chars)"
-            ));
-            content_text = fallback_text;
-            content_html = Some(html.clone());
+
+            // Preserve original HTML if it has <img> tags but fallback doesn't.
+            // The baseline fallback creates text-only <p> elements, losing image tags.
+            let original_has_images = content_html.as_ref().is_some_and(|h| h.contains("<img"));
+            let fallback_has_images = html.contains("<img");
+            if original_has_images && !fallback_has_images {
+                if cfg!(debug_assertions) {
+                    eprintln!("DEBUG fallback: preserving original HTML (has images), using fallback text only");
+                }
+                content_text = fallback_text;
+                // Keep original content_html with images
+            } else {
+                warnings.push(format!(
+                    "Used fallback extraction: {fallback_len} chars (was {content_len} chars)"
+                ));
+                content_text = fallback_text;
+                content_html = Some(html.clone());
+            }
         }
     }
 
@@ -2831,6 +2844,9 @@ fn push_filtered_html_children(
                     | "caption"
                     | "colgroup"
                     | "col"
+                    | "figure"
+                    | "figcaption"
+                    | "picture"
             ) {
                 out.push('<');
                 out.push_str(&tag);
@@ -2873,6 +2889,52 @@ fn push_filtered_html_children(
 
                 out.push_str("</");
                 out.push_str(&tag);
+                out.push('>');
+            } else if tag == "img" {
+                out.push_str("<img");
+                if let Some(src) = el.attr("src") {
+                    out.push_str(" src=\"");
+                    out.push_str(&escape_html(&src));
+                    out.push('"');
+                }
+                if let Some(alt) = el.attr("alt") {
+                    out.push_str(" alt=\"");
+                    out.push_str(&escape_html(&alt));
+                    out.push('"');
+                }
+                if let Some(title) = el.attr("title") {
+                    out.push_str(" title=\"");
+                    out.push_str(&escape_html(&title));
+                    out.push('"');
+                }
+                if let Some(loading) = el.attr("loading") {
+                    out.push_str(" loading=\"");
+                    out.push_str(&escape_html(&loading));
+                    out.push('"');
+                }
+                out.push('>');
+            } else if tag == "source" {
+                out.push_str("<source");
+                if let Some(srcset) = el.attr("srcset") {
+                    out.push_str(" srcset=\"");
+                    out.push_str(&escape_html(&srcset));
+                    out.push('"');
+                }
+                if let Some(media) = el.attr("media") {
+                    out.push_str(" media=\"");
+                    out.push_str(&escape_html(&media));
+                    out.push('"');
+                }
+                if let Some(type_attr) = el.attr("type") {
+                    out.push_str(" type=\"");
+                    out.push_str(&escape_html(&type_attr));
+                    out.push('"');
+                }
+                if let Some(sizes) = el.attr("sizes") {
+                    out.push_str(" sizes=\"");
+                    out.push_str(&escape_html(&sizes));
+                    out.push('"');
+                }
                 out.push('>');
             } else if tag == "br" {
                 out.push_str("<br>");
