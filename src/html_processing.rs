@@ -215,10 +215,24 @@ fn doc_cleaning_inner(doc: &Document, opts: &Options, preserve_tags: &[&str]) {
             cleaning_opts.tags_to_remove.retain(|t| !preserve_tags.contains(&t.as_str()));
         }
 
-        // Conditional: include tables — don't remove figure/picture/source
+        // Conditional: include images — don't remove figure/picture/source
         if opts.include_images {
             cleaning_opts.tags_to_remove.retain(|t| !matches!(t.as_str(), "figure" | "picture" | "source"));
             cleaning_opts.tags_to_strip.retain(|t| t != "img");
+        }
+
+        // Conditional: include videos — preserve video, figure, source, track
+        if opts.include_videos {
+            cleaning_opts.tags_to_remove.retain(|t| !matches!(t.as_str(), "video" | "figure" | "source" | "track"));
+            cleaning_opts.tags_to_strip.retain(|t| !matches!(t.as_str(), "source" | "track"));
+        }
+
+        // Conditional: include audio — preserve audio, figure, source
+        if opts.include_audio {
+            cleaning_opts.tags_to_remove.retain(|t| !matches!(t.as_str(), "audio" | "figure" | "source"));
+            if !opts.include_videos {
+                cleaning_opts.tags_to_strip.retain(|t| t != "source");
+            }
         }
 
         // Conditional: exclude tables — add table tags to removal
@@ -276,6 +290,14 @@ fn build_clean_selector(opts: &Options) -> Vec<String> {
         selectors.retain(|t| !matches!(t.as_str(), "figure" | "picture" | "source"));
     }
 
+    if opts.include_videos {
+        selectors.retain(|t| !matches!(t.as_str(), "video" | "figure" | "source" | "track"));
+    }
+
+    if opts.include_audio {
+        selectors.retain(|t| !matches!(t.as_str(), "audio" | "figure" | "source"));
+    }
+
     // Add modal/gdpr/consent selectors - these are cookie consent banners that
     // should be removed before content extraction.
     //
@@ -312,6 +334,14 @@ fn build_strip_selector(opts: &Options) -> Vec<String> {
 
     if opts.include_images {
         tags.retain(|t| t != "img");
+    }
+
+    if opts.include_videos {
+        tags.retain(|t| !matches!(t.as_str(), "source" | "track"));
+    }
+
+    if opts.include_audio && !opts.include_videos {
+        tags.retain(|t| t != "source");
     }
 
     tags

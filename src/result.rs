@@ -28,6 +28,45 @@ pub struct ImageData {
     pub is_hero: bool,
 }
 
+/// Structured video data extracted from content.
+///
+/// Contains metadata about each video found in the document.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoData {
+    /// Source URL (from `<video src="...">` or first `<source src="...">`).
+    pub src: String,
+
+    /// Filename extracted from URL (without query params/fragments).
+    pub filename: String,
+
+    /// Poster image URL (from `<video poster="...">`).
+    pub poster: Option<String>,
+
+    /// Caption text from associated `<figcaption>` element.
+    pub caption: Option<String>,
+
+    /// Whether this is the main/hero video for the page.
+    pub is_hero: bool,
+}
+
+/// Structured audio data extracted from content.
+///
+/// Contains metadata about each audio found in the document.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AudioData {
+    /// Source URL (from `<audio src="...">` or first `<source src="...">`).
+    pub src: String,
+
+    /// Filename extracted from URL (without query params/fragments).
+    pub filename: String,
+
+    /// Caption text from associated `<figcaption>` element.
+    pub caption: Option<String>,
+
+    /// Whether this is the main/hero audio for the page.
+    pub is_hero: bool,
+}
+
 /// Result of content extraction from an HTML document.
 ///
 /// Contains the extracted content in both text and HTML formats,
@@ -54,6 +93,12 @@ pub struct ExtractResult {
 
     /// Images found in content with metadata (if `include_images` enabled).
     pub images: Vec<ImageData>,
+
+    /// Videos found in content with metadata (if `include_videos` enabled).
+    pub videos: Vec<VideoData>,
+
+    /// Audio found in content with metadata (if `include_audio` enabled).
+    pub audio: Vec<AudioData>,
 
     /// Extracted metadata about the document.
     pub metadata: Metadata,

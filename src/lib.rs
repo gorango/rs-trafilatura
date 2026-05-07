@@ -81,7 +81,7 @@ pub(crate) mod link_density;
 // Public API - re-exports
 pub use error::{Error, Result};
 pub use options::Options;
-pub use result::{ExtractResult, ImageData, Metadata};
+pub use result::{ExtractResult, ImageData, VideoData, AudioData, Metadata};
 
 /// Extracts main content from an HTML document using default options.
 ///

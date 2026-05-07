@@ -28,7 +28,7 @@ thread_local! {
     static COMMENTS_ARE_CONTENT: Cell<bool> = const { Cell::new(false) };
 }
 use crate::selector;
-use crate::result::{ExtractResult, ImageData};
+use crate::result::{ExtractResult, ImageData, VideoData, AudioData};
 use crate::url_utils::{extract_filename, filenames_match};
 
 /// Main entry point for content extraction.
@@ -218,16 +218,20 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
         if let Some(ref html) = fallback_html {
             let fallback_len = fallback_text.chars().count();
 
-            // Preserve original HTML if it has <img> tags but fallback doesn't.
-            // The baseline fallback creates text-only <p> elements, losing image tags.
-            let original_has_images = content_html.as_ref().is_some_and(|h| h.contains("<img"));
-            let fallback_has_images = html.contains("<img");
-            if original_has_images && !fallback_has_images {
+            // Preserve original HTML if it has media tags but fallback doesn't.
+            // The baseline fallback creates text-only <p> elements, losing media tags.
+            let original_has_media = content_html.as_ref().is_some_and(|h| {
+                h.contains("<img") || h.contains("<video") || h.contains("<audio")
+            });
+            let fallback_has_media = html.contains("<img")
+                || html.contains("<video")
+                || html.contains("<audio");
+            if original_has_media && !fallback_has_media {
                 if cfg!(debug_assertions) {
-                    eprintln!("DEBUG fallback: preserving original HTML (has images), using fallback text only");
+                    eprintln!("DEBUG fallback: preserving original HTML (has media), using fallback text only");
                 }
                 content_text = fallback_text;
-                // Keep original content_html with images
+                // Keep original content_html with media
             } else {
                 warnings.push(format!(
                     "Used fallback extraction: {fallback_len} chars (was {content_len} chars)"
@@ -402,11 +406,27 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
         Vec::new()
     };
 
+    // Extract videos if requested
+    let videos = if options.include_videos {
+        extract_videos(&document)
+    } else {
+        Vec::new()
+    };
+
+    // Extract audio if requested
+    let audio = if options.include_audio {
+        extract_audio(&document)
+    } else {
+        Vec::new()
+    };
+
     if cfg!(debug_assertions) {
         eprintln!("DEBUG: Extraction summary:");
         eprintln!("  Content text: {} chars", content_text.len());
         eprintln!("  Comments: {} chars", comments_text.as_ref().map_or(0, std::string::String::len));
         eprintln!("  Images: {}", images.len());
+        eprintln!("  Videos: {}", videos.len());
+        eprintln!("  Audio: {}", audio.len());
         eprintln!("  Warnings: {}", warnings.len());
     }
 
@@ -427,6 +447,8 @@ pub(crate) fn extract_content(html: &str, options: &Options) -> Result<ExtractRe
         comments_text,
         comments_html,
         images,
+        videos,
+        audio,
         metadata,
         classification_confidence,
         extraction_quality,
@@ -2936,6 +2958,115 @@ fn push_filtered_html_children(
                     out.push('"');
                 }
                 out.push('>');
+            } else if tag == "video" {
+                out.push_str("<video");
+                if let Some(src) = el.attr("src") {
+                    out.push_str(" src=\"");
+                    out.push_str(&escape_html(&src));
+                    out.push('"');
+                }
+                if let Some(poster) = el.attr("poster") {
+                    out.push_str(" poster=\"");
+                    out.push_str(&escape_html(&poster));
+                    out.push('"');
+                }
+                if let Some(width) = el.attr("width") {
+                    out.push_str(" width=\"");
+                    out.push_str(&escape_html(&width));
+                    out.push('"');
+                }
+                if let Some(height) = el.attr("height") {
+                    out.push_str(" height=\"");
+                    out.push_str(&escape_html(&height));
+                    out.push('"');
+                }
+                if el.attr("controls").is_some() {
+                    out.push_str(" controls");
+                }
+                if el.attr("autoplay").is_some() {
+                    out.push_str(" autoplay");
+                }
+                if el.attr("muted").is_some() {
+                    out.push_str(" muted");
+                }
+                if el.attr("loop").is_some() {
+                    out.push_str(" loop");
+                }
+                if let Some(preload) = el.attr("preload") {
+                    out.push_str(" preload=\"");
+                    out.push_str(&escape_html(&preload));
+                    out.push('"');
+                }
+                out.push('>');
+                push_filtered_html_children(
+                    &el,
+                    out,
+                    next_inside_article_or_main,
+                    inside_layout_table,
+                    options,
+                    filter_named_boilerplate,
+                );
+                out.push_str("</video>");
+            } else if tag == "audio" {
+                out.push_str("<audio");
+                if let Some(src) = el.attr("src") {
+                    out.push_str(" src=\"");
+                    out.push_str(&escape_html(&src));
+                    out.push('"');
+                }
+                if el.attr("controls").is_some() {
+                    out.push_str(" controls");
+                }
+                if el.attr("autoplay").is_some() {
+                    out.push_str(" autoplay");
+                }
+                if el.attr("muted").is_some() {
+                    out.push_str(" muted");
+                }
+                if el.attr("loop").is_some() {
+                    out.push_str(" loop");
+                }
+                if let Some(preload) = el.attr("preload") {
+                    out.push_str(" preload=\"");
+                    out.push_str(&escape_html(&preload));
+                    out.push('"');
+                }
+                out.push('>');
+                push_filtered_html_children(
+                    &el,
+                    out,
+                    next_inside_article_or_main,
+                    inside_layout_table,
+                    options,
+                    filter_named_boilerplate,
+                );
+                out.push_str("</audio>");
+            } else if tag == "track" {
+                out.push_str("<track");
+                if let Some(src) = el.attr("src") {
+                    out.push_str(" src=\"");
+                    out.push_str(&escape_html(&src));
+                    out.push('"');
+                }
+                if let Some(kind) = el.attr("kind") {
+                    out.push_str(" kind=\"");
+                    out.push_str(&escape_html(&kind));
+                    out.push('"');
+                }
+                if let Some(srclang) = el.attr("srclang") {
+                    out.push_str(" srclang=\"");
+                    out.push_str(&escape_html(&srclang));
+                    out.push('"');
+                }
+                if let Some(label) = el.attr("label") {
+                    out.push_str(" label=\"");
+                    out.push_str(&escape_html(&label));
+                    out.push('"');
+                }
+                if el.attr("default").is_some() {
+                    out.push_str(" default");
+                }
+                out.push('>');
             } else if tag == "br" {
                 out.push_str("<br>");
             } else {
@@ -3625,6 +3756,276 @@ fn mark_hero_image(images: &mut [ImageData], og_image: Option<&str>) {
     if let Some(first) = images.first_mut() {
         first.is_hero = true;
     }
+}
+
+/// Extracts video elements from the document.
+fn extract_videos(doc: &Document) -> Vec<VideoData> {
+    let mut videos = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
+
+    if let Some(content_node) = find_main_content_node_with_options(doc, &Options::default()) {
+        extract_videos_from_node(&content_node, &mut videos, &mut seen_urls);
+    }
+
+    if videos.is_empty() {
+        let body = doc.select("body");
+        if body.length() > 0 {
+            extract_videos_from_node(&body, &mut videos, &mut seen_urls);
+        }
+    }
+
+    videos
+}
+
+/// Extracts video data from a specific node.
+fn extract_videos_from_node(
+    node: &Selection,
+    videos: &mut Vec<VideoData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let node_html = dom::outer_html(node);
+    let doc = Document::from(node_html);
+
+    let figure_sel = doc.select("figure");
+    for figure_node in figure_sel.nodes() {
+        let figure = Selection::from(*figure_node);
+        extract_video_from_figure(&figure, videos, seen_urls);
+    }
+
+    let video_sel = doc.select("video");
+    for video_node in video_sel.nodes() {
+        let video = Selection::from(*video_node);
+        extract_video_element(&video, videos, seen_urls);
+    }
+}
+
+/// Extracts video data from a <figure> element.
+fn extract_video_from_figure(
+    figure: &Selection,
+    videos: &mut Vec<VideoData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let video_sel = figure.select("video");
+    if video_sel.length() == 0 {
+        return;
+    }
+
+    let Some(video_node) = video_sel.nodes().first() else {
+        return;
+    };
+    let video = Selection::from(*video_node);
+    extract_video_element_with_caption(&video, figure, videos, seen_urls);
+}
+
+/// Extracts video data from a <video> element with an associated figcaption.
+fn extract_video_element_with_caption(
+    video: &Selection,
+    figure: &Selection,
+    videos: &mut Vec<VideoData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let src = get_video_src(video);
+    let Some(src) = src else { return };
+
+    if seen_urls.contains(&src) {
+        return;
+    }
+    seen_urls.insert(src.clone());
+
+    let filename = extract_filename(&src);
+    let poster = video.attr("poster").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let caption = extract_figcaption(figure);
+
+    videos.push(VideoData {
+        src,
+        filename,
+        poster,
+        caption,
+        is_hero: false,
+    });
+}
+
+/// Extracts video data from a <video> element without a figure wrapper.
+fn extract_video_element(
+    video: &Selection,
+    videos: &mut Vec<VideoData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let src = get_video_src(video);
+    let Some(src) = src else { return };
+
+    if seen_urls.contains(&src) {
+        return;
+    }
+    seen_urls.insert(src.clone());
+
+    let filename = extract_filename(&src);
+    let poster = video.attr("poster").map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+
+    videos.push(VideoData {
+        src,
+        filename,
+        poster,
+        caption: None,
+        is_hero: false,
+    });
+}
+
+/// Gets the source URL from a <video> element.
+/// Tries: video src attribute, then first <source> src attribute.
+fn get_video_src(video: &Selection) -> Option<String> {
+    if let Some(src) = video.attr("src") {
+        let src = src.trim().to_string();
+        if !src.is_empty() {
+            return Some(src);
+        }
+    }
+
+    let source_sel = video.select("source");
+    for source_node in source_sel.nodes() {
+        let source = Selection::from(*source_node);
+        if let Some(src) = source.attr("src") {
+            let src = src.trim().to_string();
+            if !src.is_empty() {
+                return Some(src);
+            }
+        }
+    }
+
+    None
+}
+
+/// Extracts audio elements from the document.
+fn extract_audio(doc: &Document) -> Vec<AudioData> {
+    let mut audio_list = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
+
+    if let Some(content_node) = find_main_content_node_with_options(doc, &Options::default()) {
+        extract_audio_from_node(&content_node, &mut audio_list, &mut seen_urls);
+    }
+
+    if audio_list.is_empty() {
+        let body = doc.select("body");
+        if body.length() > 0 {
+            extract_audio_from_node(&body, &mut audio_list, &mut seen_urls);
+        }
+    }
+
+    audio_list
+}
+
+/// Extracts audio data from a specific node.
+fn extract_audio_from_node(
+    node: &Selection,
+    audio_list: &mut Vec<AudioData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let node_html = dom::outer_html(node);
+    let doc = Document::from(node_html);
+
+    let figure_sel = doc.select("figure");
+    for figure_node in figure_sel.nodes() {
+        let figure = Selection::from(*figure_node);
+        extract_audio_from_figure(&figure, audio_list, seen_urls);
+    }
+
+    let audio_sel = doc.select("audio");
+    for audio_node in audio_sel.nodes() {
+        let audio = Selection::from(*audio_node);
+        extract_audio_element(&audio, audio_list, seen_urls);
+    }
+}
+
+/// Extracts audio data from a <figure> element.
+fn extract_audio_from_figure(
+    figure: &Selection,
+    audio_list: &mut Vec<AudioData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let audio_sel = figure.select("audio");
+    if audio_sel.length() == 0 {
+        return;
+    }
+
+    let Some(audio_node) = audio_sel.nodes().first() else {
+        return;
+    };
+    let audio = Selection::from(*audio_node);
+    extract_audio_element_with_caption(&audio, figure, audio_list, seen_urls);
+}
+
+/// Extracts audio data from an <audio> element with an associated figcaption.
+fn extract_audio_element_with_caption(
+    audio: &Selection,
+    figure: &Selection,
+    audio_list: &mut Vec<AudioData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let src = get_audio_src(audio);
+    let Some(src) = src else { return };
+
+    if seen_urls.contains(&src) {
+        return;
+    }
+    seen_urls.insert(src.clone());
+
+    let filename = extract_filename(&src);
+    let caption = extract_figcaption(figure);
+
+    audio_list.push(AudioData {
+        src,
+        filename,
+        caption,
+        is_hero: false,
+    });
+}
+
+/// Extracts audio data from an <audio> element without a figure wrapper.
+fn extract_audio_element(
+    audio: &Selection,
+    audio_list: &mut Vec<AudioData>,
+    seen_urls: &mut std::collections::HashSet<String>,
+) {
+    let src = get_audio_src(audio);
+    let Some(src) = src else { return };
+
+    if seen_urls.contains(&src) {
+        return;
+    }
+    seen_urls.insert(src.clone());
+
+    let filename = extract_filename(&src);
+
+    audio_list.push(AudioData {
+        src,
+        filename,
+        caption: None,
+        is_hero: false,
+    });
+}
+
+/// Gets the source URL from an <audio> element.
+/// Tries: audio src attribute, then first <source> src attribute.
+fn get_audio_src(audio: &Selection) -> Option<String> {
+    if let Some(src) = audio.attr("src") {
+        let src = src.trim().to_string();
+        if !src.is_empty() {
+            return Some(src);
+        }
+    }
+
+    let source_sel = audio.select("source");
+    for source_node in source_sel.nodes() {
+        let source = Selection::from(*source_node);
+        if let Some(src) = source.attr("src") {
+            let src = src.trim().to_string();
+            if !src.is_empty() {
+                return Some(src);
+            }
+        }
+    }
+
+    None
 }
 
 fn find_comment_section(doc: &Document) -> Option<Selection<'_>> {
